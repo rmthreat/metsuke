@@ -45,18 +45,37 @@ Load it locally: `chrome://extensions` -> Developer mode -> "Load unpacked" -> p
 
 ## Detection rules (17 enabled)
 
-RIG-001 off-screen hidden code · RIG-002 whitespace pushes code off-screen ·
-RIG-003 spliced/reordered base64 C2 · RIG-004 known C2 port 1224/1244 ·
-RIG-005 base64 decodes to IP:port · RIG-006 eval/Function loader ·
-RIG-007 atob -> eval chain · RIG-008 wallet/key paths · RIG-009 browser profile dir (med) ·
-RIG-010 install script downloads/executes · RIG-011 install script connects to IP ·
-RIG-013 VS Code run-on-open · RIG-016 agent hooks run-on-open (Claude/Gemini) ·
-RIG-017 AI instruction file hidden injection chars ·
-RIG-018 husky git hook run-on-open · RIG-019 SSH authorized_keys backdoor ·
-RIG-020 AI rules file instructs the agent to run a command.
+`Trigger` is what makes a rule applicable: **content** rules match any fetched text
+(file-primary - the malicious source usually lives in a file you open); **path-gated**
+rules only fire on a specific config/instruction file (repo-primary - those files are
+exactly what the repo-home scan fetches).
 
-Experimental (off by default): RIG-012 (non-registry dependency source),
-RIG-014 (off-screen high-entropy string).
+| Rule | Detects | Trigger | File | Repo | Primary |
+|---|---|---|:--:|:--:|:--:|
+| RIG-001 | Off-screen hidden code | content | ✓ | ✓ | file |
+| RIG-002 | Whitespace pushes code off-screen | content | ✓ | ✓ | file |
+| RIG-003 | Spliced/reordered base64 C2 | content | ✓ | ✓ | file |
+| RIG-004 | Known C2 port 1224/1244 | content | ✓ | ✓ | file |
+| RIG-005 | base64 decodes to IP:port | content | ✓ | ✓ | file |
+| RIG-006 | eval()/Function() dynamic loader | content | ✓ | ✓ | file |
+| RIG-007 | atob -> eval execution chain | content | ✓ | ✓ | file |
+| RIG-008 | Accesses wallet/key paths | content | ✓ | ✓ | file |
+| RIG-009 | Accesses browser profile dir (med) | content | ✓ | ✓ | file |
+| RIG-019 | SSH authorized_keys backdoor write | content | ✓ | ✓ | file |
+| RIG-010 | Install script downloads/executes | `package.json` | ✓ | ✓ | repo |
+| RIG-011 | Install script connects to IP | `package.json` | ✓ | ✓ | repo |
+| RIG-013 | VS Code run-on-open setting | `.vscode/` | ✓ | ✓ | repo |
+| RIG-016 | Agent hooks run on open (Claude/Gemini) | `.claude/`·`.gemini/` settings | ✓ | ✓ | repo |
+| RIG-017 | AI instruction file hidden injection chars | instruction/rules files | ✓ | ✓ | repo |
+| RIG-018 | Git hook (husky) runs on open | `.husky/` | ✓ | ✓ | repo |
+| RIG-020 | AI rules file instructs the agent to run a command | `.cursor/rules`·`.cursorrules` | ✓ | ✓ | repo |
+
+Experimental (off by default):
+
+| Rule | Detects | Trigger |
+|---|---|---|
+| RIG-012 | Dependency from a non-registry source | `package.json` |
+| RIG-014 | Off-screen high-entropy string | content |
 
 The full rule-to-intel mapping (severity / confidence / family, combination rules,
 and 2026 threat-report sources) lives in `detector.js` and the internal rules doc.
