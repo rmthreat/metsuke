@@ -1,0 +1,106 @@
+# Release workflow - builds the Web Store zip and (optionally) a signed crx,
+# then publishes them as GitHub Release assets.
+#
+# Trigger:
+#   • push a tag like v0.3.0   →  release tagged v0.3.0
+#   • or run manually (workflow_dispatch) → release tagged v<manifest version>
+#
+# CRX signing (optional): add a repo secret named CRX_PRIVATE_KEY containing the
+# full PEM private key (the same key.pem used locally, so the extension ID stays
+# stable). Without it, only the zip is released.  NEVER commit the .pem itself.
+#
+# Supply-chain hardening: every external action is pinned to a full commit SHA
+# (the version tag is kept in the trailing comment for readability). The crx is
+# signed with the Chrome that is preinstalled on the ubuntu-latest runner, so
+# there is no external binary download to pin.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # required to create the release; nothing else
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+
+      - name: Validate (unit tests + locale JSON)
+        run: |
+          node tests/run.js
+          for f in _locales/*/messages.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" \
+              || { echo "Invalid JSON: $f"; exit 1; }
+          done
+
+      - name: Resolve version & tag
+        id: meta
+        run: |
+          version="$(node -e "process.stdout.write(require('./manifest.json').version)")"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="v${version}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Stage runtime files
+        run: |
+          mkdir -p dist/pkg
+          cp -R manifest.json detector.js content.js background.js \
+                popup.html popup.js popup.css icons _locales dist/pkg/
+          find dist/pkg -name '.DS_Store' -delete
+
+      - name: Build zip
+        run: |
+          ( cd dist/pkg && zip -rqX "../metsuke-v${{ steps.meta.outputs.version }}.zip" . )
+          ls -la dist
+
+      - name: Build crx (signed; needs CRX_PRIVATE_KEY secret)
+        continue-on-error: true
+        env:
+          CRX_PEM: ${{ secrets.CRX_PRIVATE_KEY }}
+        run: |
+          if [ -z "${CRX_PEM}" ]; then
+            echo "::notice::CRX_PRIVATE_KEY not set - releasing zip only (no crx)."
+            exit 0
+          fi
+          # Use the Chrome preinstalled on the ubuntu-latest runner (no external download to pin).
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || true)"
+          if [ -z "${chrome}" ]; then
+            echo "::notice::Chrome not present on runner - releasing zip only (no crx)."
+            exit 0
+          fi
+          printf '%s' "${CRX_PEM}" > key.pem
+          "${chrome}" --headless=new --no-sandbox --disable-gpu \
+            --pack-extension="${PWD}/dist/pkg" --pack-extension-key="${PWD}/key.pem"
+          mv dist/pkg.crx "dist/metsuke-v${{ steps.meta.outputs.version }}.crx"
+          rm -f key.pem
+          echo "crx built."
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          assets=$(ls dist/metsuke-v*.zip dist/metsuke-v*.crx 2>/dev/null || true)
+          echo "Release assets: ${assets}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" ${assets} --clobber
+          else
+            gh release create "${TAG}" ${assets} \
+              --title "Metsuke ${TAG}" \
+              --generate-notes
+          fi

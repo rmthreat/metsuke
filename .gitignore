@@ -1,0 +1,15 @@
+# Build output
+dist/
+
+# Internal docs (specs, design, store listing copy, mockups) - not shipped/tracked
+docs/
+
+# Extension signing key - NEVER commit. It controls the extension ID and
+# whoever holds it can publish updates as you.
+*.pem
+
+# IDE
+.idea/
+
+# OS
+.DS_Store

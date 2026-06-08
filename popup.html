@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Metsuke</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<div class="popup">
+
+  <div class="p-head">
+    <img class="logo" src="icons/icon.svg" alt="" width="22" height="22">
+    <span class="nm" id="brand" data-i18n="brand">Metsuke</span>
+  </div>
+
+  <div class="verdict" id="verdict">
+    <div class="vbadge" id="vbadge">…</div>
+    <div>
+      <div class="vt" id="vt" data-i18n="pp_scanning">Scanning</div>
+      <div class="vs" id="vs"></div>
+    </div>
+  </div>
+
+  <div class="p-find" id="findings"></div>
+
+  <div class="p-act" id="pact">
+    <button class="btn primary" id="trustBtn" data-i18n="ui_btn_trust" hidden>Trust this repo</button>
+    <button class="btn" id="untrustBtn" data-i18n="pp_btn_untrust" hidden>Untrust</button>
+    <button class="btn" id="rescanBtn" data-i18n="pp_btn_rescan">Re-scan</button>
+  </div>
+
+  <div class="p-allow" id="pallow">
+    <div class="label" data-i18n="pp_allow_label">Trust list</div>
+    <div id="allowlist" class="allow-rows"></div>
+  </div>
+
+  <div class="p-foot">
+    <button class="toggle" id="toggleBtn">
+      <span class="sw" id="sw"></span><span id="toggleLabel" data-i18n="pp_enabled">Enabled</span>
+    </button>
+    <span id="ver"></span>
+  </div>
+
+</div>
+<script src="popup.js"></script>
+</body>
+</html>
