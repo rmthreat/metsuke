@@ -9,6 +9,9 @@ repository. **It only warns - it never modifies or blocks the page.**
 
 Available in English, 繁體中文, and 日本語 (follows the browser language).
 
+**Install:** [Chrome Web Store](https://chromewebstore.google.com/detail/edecaphkcjlamaidljcpjcodiljgcajb)
+· Extension ID `edecaphkcjlamaidljcpjcodiljgcajb`
+
 ## Structure
 
 | File | Responsibility |
