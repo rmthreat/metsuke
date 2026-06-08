@@ -1,52 +1,80 @@
 # 目付 Metsuke - Repo Interview Guard
 
-在 GitHub / GitLab / Bitbucket 開啟原始碼檔案時即時分析,當檔案出現 DPRK 假面試惡意戰役(Contagious Interview / DeceptiveDevelopment)特徵時警示。**僅警示,不修改、不阻擋頁面。**
+**目付 (Metsuke)** is the Edo-era word for an official who *watches for wrongdoing*.
+The extension analyzes source files on GitHub / GitLab / Bitbucket the moment you
+open them, and warns when a file shows traits of a malicious "fake-interview"
+repository. **It only warns - it never modifies or blocks the page.**
 
-- 規格(範圍鎖定版):[docs/SPEC.md](docs/SPEC.md)
-- 設計風格指南:[docs/design.md](docs/design.md) · mockup:[docs/design-mockup.html](docs/design-mockup.html)
+> 守望而不阻擋。 ・ 警戒すれども、妨げず。
 
-## 結構
+Available in English, 繁體中文, and 日本語 (follows the browser language).
 
-| 檔案 | 職責 |
+## Structure
+
+| File | Responsibility |
 |---|---|
-| `manifest.json` | MV3;僅 `storage` 權限 + 具名 host permissions |
-| `detector.js` | 純偵測引擎(無 DOM / 無網路);RIG-001~014 規則與門檻常數 |
-| `content.js` | URL 解析、取文字(raw → GitHub embedded JSON)、idle 分析、Shadow DOM 橫幅、reveal、SPA 換頁偵測 |
-| `background.js` | service worker:代理 raw fetch(帶 cookie)、設定 badge |
-| `popup.html/css/js` | 判決摘要、信任清單(allowlist)、總開關 |
-| `tests/run.js` | 規則正向 fixture + 誤報語料(0 high 誤報門檻) |
+| `manifest.json` | MV3; only the `storage` permission + named host permissions |
+| `detector.js` | Pure detection engine (no DOM / no network); rules RIG-001~020 and threshold constants |
+| `content.js` | URL parsing, text fetch (raw -> GitHub embedded JSON), idle analysis, Shadow DOM banner, reveal, SPA navigation detection |
+| `background.js` | Service worker: proxy the raw fetch (with cookies), set the badge |
+| `popup.html/css/js` | Verdict summary, trust list (allowlist), master switch |
+| `tests/run.js` | Positive rule fixtures + false-positive corpus (0 high-severity FP gate) |
+| `_locales/{en,zh_TW,ja}` | i18n message catalogs (English default) |
 
-## 開發
+## Development
 
 ```sh
-# 跑偵測引擎測試(門檻常數調整必附;SPEC §10)
+# Run the detection-engine tests (required whenever threshold constants change)
 node tests/run.js
+
+# Build a Web Store zip + unpacked dir
+bash scripts/pack.sh
 ```
 
-載入擴充功能:`chrome://extensions` → 開發人員模式 → 「載入未封裝項目」→ 選本目錄。
+Load it locally: `chrome://extensions` -> Developer mode -> "Load unpacked" -> pick this directory.
 
-## 兩種分析模式
+## Two analysis modes
 
-- **檔案頁**(`/blob`、`/-/blob`、`/src`):開檔時即時分析單檔(v1 主線)。
-- **repo 首頁 / tree 頁**:定點掃描固定的高價值入口檔(`package.json`、`.vscode/tasks.json`、`.vscode/settings.json`、`.claude/settings*.json`、`.cursorrules`、`.github/copilot-instructions.md`、`CLAUDE.md`、`AGENTS.md`、`GEMINI.md`),不必逐一點開檔案。findings 標注來源檔並可點擊前往(v1.1,SPEC §12)。
+- **File pages** (`/blob`, `/-/blob`, `/src`): real-time analysis of the single file you open.
+- **Repo home / tree pages**: a targeted scan of fixed high-value entry files
+  (`package.json`, `.vscode/tasks.json`, `.vscode/settings.json`, `.claude/settings*.json`,
+  `.gemini/settings*.json`, `.cursorrules`, `.cursor/rules/setup.mdc`,
+  `.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.husky/*`) -
+  so you are warned on the landing page without opening each file. Findings are tagged with
+  their source file and are click-through.
 
-## 偵測規則(enabled,共 16 條)
+## Detection rules (17 enabled)
 
-RIG-001 右緣外隱藏程式碼 · RIG-002 空白填充推出畫面 · RIG-003 切段+交換 base64 C2 · RIG-004 C2 埠 1224/1244 · RIG-005 base64 解碼出 IP:port · RIG-006 eval/Function loader · RIG-007 atob→eval 鏈 · RIG-008 錢包/金鑰路徑 · RIG-009 瀏覽器 profile 目錄(med)· RIG-010 安裝腳本下載/內嵌執行 · RIG-011 安裝腳本連 IP · RIG-013 VS Code 開啟即執行 · RIG-016 Claude Code hooks 開啟即執行 · RIG-017 AI 指令檔隱藏注入字元 · **RIG-018 husky git hook 開啟即執行** · **RIG-019 SSH authorized_keys 後門**
+RIG-001 off-screen hidden code · RIG-002 whitespace pushes code off-screen ·
+RIG-003 spliced/reordered base64 C2 · RIG-004 known C2 port 1224/1244 ·
+RIG-005 base64 decodes to IP:port · RIG-006 eval/Function loader ·
+RIG-007 atob -> eval chain · RIG-008 wallet/key paths · RIG-009 browser profile dir (med) ·
+RIG-010 install script downloads/executes · RIG-011 install script connects to IP ·
+RIG-013 VS Code run-on-open · RIG-016 agent hooks run-on-open (Claude/Gemini) ·
+RIG-017 AI instruction file hidden injection chars ·
+RIG-018 husky git hook run-on-open · RIG-019 SSH authorized_keys backdoor ·
+RIG-020 AI rules file instructs the agent to run a command.
 
-Experimental(預設關閉,轉 enabled 須走 SPEC §10):RIG-012(依賴非 registry 來源)、RIG-014(右緣外高熵字串)。
+Experimental (off by default): RIG-012 (non-registry dependency source),
+RIG-014 (off-screen high-entropy string).
 
-完整的**規則 ↔ 情資對照、風險/信心/家族、組合規則與 2026 情資來源**見 **[docs/rules.md](docs/rules.md)**。
+The full rule-to-intel mapping (severity / confidence / family, combination rules,
+and 2026 threat-report sources) lives in `detector.js` and the internal rules doc.
 
-## 告警分級(降誤報)
+## Alert tiers (false-positive reduction)
 
-每條規則帶 **severity(風險)× confidence(誤報可能性)× family(家族)**,由 `detector.assess()` 計算呈現:
+Every rule carries **severity x confidence x family**, and `detector.assess()` decides how to show it:
 
-- **alarm - 完整珊瑚紅框**:高信心強訊號(已知 C2 埠、錢包路徑、隱形注入字元…),或 **≥2 個不同家族組合**(多階段攻擊鏈)。
-- **caution - 較小琥珀框**:單一易誤報訊號(合法 postinstall 也可能 `curl`)或僅中風險,語氣收斂、不干擾。
+- **alarm - full coral banner**: a high-confidence strong signal (known C2 port, wallet path,
+  hidden injection chars...), or **two or more different families together** (multi-stage chain).
+- **caution - smaller amber banner**: a single easily-misjudged signal (a legitimate postinstall
+  can also use `curl`) or medium risk only - low-key, not intrusive.
 
-第一個危險信號就立即彈出 banner;尚未掃完時顯示 loading,掃完再更新。
+The banner pops on the first dangerous signal; while the scan is still running it shows a loading
+spinner, then updates when done.
 
-## 隱私
+## Privacy
 
-不蒐集、不傳輸、不販售;內容僅本機分析。唯一網路請求為向使用者當前同站取該檔 raw 原始碼。設定僅存 `{ enabled, allowlist }` 於 `chrome.storage.sync`。
+No collection, no transmission, no sale; all analysis runs locally. The only network request
+fetches the raw source of the file you are already viewing, from the same code host you are on.
+Only `{ enabled, allowlist }` is stored, in `chrome.storage.sync`. See `PRIVACY.md`.
