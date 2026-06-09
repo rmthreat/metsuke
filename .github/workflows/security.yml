@@ -32,7 +32,7 @@ jobs:
       # rest of the job. Pre-release tool, so don't fail the build on sensor issues.
       - name: cicd-sensor (runtime CI/CD EDR)
         continue-on-error: true
-        uses: cicd-sensor/cicd-sensor-action@e3cf7b8e9e03a30a65fbed8b4fced1e5506204eb # v0.0.31
+        uses: cicd-sensor/cicd-sensor-action@1935de498397aa7b9bf6ac7ca822ddb430a34843 # v0.0.31
 
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
