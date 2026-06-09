@@ -1,0 +1,20 @@
+# Dependabot — keeps the SHA-pinned GitHub Actions up to date.
+# It bumps both the commit SHA and the trailing version comment, and (for the
+# checkout/setup-node style lightweight tags vs. annotated tags) pins correctly.
+# Only the github-actions ecosystem is configured: this is a dependency-free
+# vanilla-JS extension, so there is no npm/lockfile ecosystem to track.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+    open-pull-requests-limit: 5
+    # Collapse all action updates into a single PR to reduce noise.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
