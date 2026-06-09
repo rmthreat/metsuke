@@ -30,12 +30,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '20'
+          persist-credentials: false   # release uses gh CLI (GH_TOKEN), not git creds
 
+      # Node is preinstalled on ubuntu-latest; no setup-node (avoids cache poisoning).
       - name: Validate (unit tests + locale JSON)
         run: |
           node tests/run.js
@@ -64,14 +62,17 @@ jobs:
           find dist/pkg -name '.DS_Store' -delete
 
       - name: Build zip
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          ( cd dist/pkg && zip -rqX "../metsuke-v${{ steps.meta.outputs.version }}.zip" . )
+          ( cd dist/pkg && zip -rqX "../metsuke-v${VERSION}.zip" . )
           ls -la dist
 
       - name: Build crx (signed; needs CRX_PRIVATE_KEY secret)
         continue-on-error: true
         env:
           CRX_PEM: ${{ secrets.CRX_PRIVATE_KEY }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           if [ -z "${CRX_PEM}" ]; then
             echo "::notice::CRX_PRIVATE_KEY not set - releasing zip only (no crx)."
@@ -86,7 +87,7 @@ jobs:
           printf '%s' "${CRX_PEM}" > key.pem
           "${chrome}" --headless=new --no-sandbox --disable-gpu \
             --pack-extension="${PWD}/dist/pkg" --pack-extension-key="${PWD}/key.pem"
-          mv dist/pkg.crx "dist/metsuke-v${{ steps.meta.outputs.version }}.crx"
+          mv dist/pkg.crx "dist/metsuke-v${VERSION}.crx"
           rm -f key.pem
           echo "crx built."
 

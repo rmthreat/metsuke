@@ -1,0 +1,47 @@
+# Security workflow — static analysis of the workflows themselves + a runtime
+# CI/CD sensor.
+#
+# Supply-chain hardening: every external action is pinned to a full commit SHA
+# (version tag in the trailing comment).
+#
+# Note: this is a dependency-free vanilla-JS extension (no package.json / no
+# node_modules), so there are no dependency or malicious-package scans here —
+# there is nothing to scan. If real dependencies are ever introduced, add
+# `npm audit` + a malicious-package scan at that point.
+
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 4 * * 1'   # weekly, Monday 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Runtime CI/CD security sensor (eBPF) — start it first so it observes the
+      # rest of the job. Pre-release tool, so don't fail the build on sensor issues.
+      - name: cicd-sensor (runtime CI/CD EDR)
+        continue-on-error: true
+        uses: cicd-sensor/cicd-sensor-action@e3cf7b8e9e03a30a65fbed8b4fced1e5506204eb # v0.0.31
+
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      # Static analysis of the GitHub Actions workflows (pinned actions, injection,
+      # permissions, etc.). Prints findings to the console and fails on issues.
+      - name: zizmor (GitHub Actions SAST)
+        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+        with:
+          advanced-security: false
