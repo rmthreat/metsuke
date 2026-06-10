@@ -10,6 +10,12 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    # Let a new release "cool down" before adopting it, so a freshly-published
+    # (possibly compromised) version is not pulled in immediately. Longer hold
+    # for major bumps.
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
     commit-message:
       prefix: "ci"
     open-pull-requests-limit: 5
