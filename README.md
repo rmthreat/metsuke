@@ -60,7 +60,7 @@ So, **do not** verify with `node --check` or `node -e "<malware-ish inline>"`. I
 
   ```sh
   npm install && npx wrangler login && npx wrangler deploy   # one-time
-  curl -fsS https://metsuke-detector-tests.<your-subdomain>.workers.dev/test
+  curl -fsS https://metsuke-detector-tests.gesarlin0803.workers.dev/test
   ```
 
   Returns HTTP 200 + `{ "ok": true, "pass": …, "fail": 0 }` when green, 500 when red. Full deploy/CI

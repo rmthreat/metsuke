@@ -45,13 +45,13 @@ No drift between local and remote — the same `suite.js` runs in both.
 ```sh
 npm install            # installs wrangler (devDependency)
 npx wrangler login     # browser auth to your Cloudflare account
-npx wrangler deploy    # publishes to https://metsuke-detector-tests.<your-subdomain>.workers.dev
+npx wrangler deploy    # publishes to https://metsuke-detector-tests.gesarlin0803.workers.dev
 ```
 
 ## Run the tests remotely
 
 ```sh
-curl -fsS https://metsuke-detector-tests.<your-subdomain>.workers.dev/test
+curl -fsS https://metsuke-detector-tests.gesarlin0803.workers.dev/test
 ```
 
 Returns HTTP **200** when green, **500** when red, with a JSON report:
