@@ -26,6 +26,8 @@
   "rule_RIG_022_title": { "message": "ネットワーク応答を eval/Function に渡す" },
   "rule_RIG_023_title": { "message": "process.env 全体をネットワークへ送信" },
   "rule_RIG_024_title": { "message": "lifecycle スクリプトが repo 内スクリプトを実行" },
+  "rule_RIG_025_title": { "message": "モジュールエクスポート後に難読化ペイロードを追加" },
+  "rule_RIG_026_title": { "message": "アンチフォレンジックな git 履歴改ざん" },
 
   "d_RIG_001": { "message": "$1 行目は $2 文字。画面外の末尾に実行/ネットワーク系トークンを含む" },
   "d_RIG_002": { "message": "$1 行目、$2 個の連続空白の後にコードを隠匿" },
@@ -54,6 +56,8 @@
   "d_RIG_022": { "message": "ネットワーク応答の内容を eval()/Function() に渡して実行" },
   "d_RIG_023": { "message": "process.env 全体をネットワーク sink へ送信" },
   "d_RIG_024": { "message": "$1 スクリプトが非ビルドパスの repo 内スクリプトを実行" },
+  "d_RIG_025": { "message": "モジュールのエクスポート後に難読化された実行コードが追加されている（注入ペイロード）" },
+  "d_RIG_026": { "message": "スクリプトが git 履歴を改ざんしシステム時計を操作する（アンチフォレンジック）" },
 
   "ui_head_alarm_file": { "message": "このファイルに悪意ある repo の特徴があります" },
   "ui_head_alarm_repo": { "message": "この repo の設定ファイルに悪意ある特徴があります" },

@@ -27,7 +27,7 @@
     'RIG-001', 'RIG-002', 'RIG-003', 'RIG-004', 'RIG-005', 'RIG-006',
     'RIG-007', 'RIG-008', 'RIG-009', 'RIG-010', 'RIG-011',
     'RIG-013', 'RIG-016', 'RIG-017', 'RIG-018', 'RIG-019', 'RIG-020',
-    'RIG-021', 'RIG-022', 'RIG-023', 'RIG-024',
+    'RIG-021', 'RIG-022', 'RIG-023', 'RIG-024', 'RIG-025', 'RIG-026',
   ]);
 
   // Each rule: sev = risk severity; conf = confidence of a standalone hit (inverse of
@@ -58,6 +58,8 @@
     'RIG-022': { sev: 'high', conf: 'high', family: 'exec',    title: 'Network response passed to eval/Function' },
     'RIG-023': { sev: 'high', conf: 'med',  family: 'steal',   title: 'Whole process.env exfiltrated to network' },
     'RIG-024': { sev: 'high', conf: 'med',  family: 'install', title: 'Lifecycle script runs an in-repo script' },
+    'RIG-025': { sev: 'high', conf: 'med',  family: 'exec',    title: 'Obfuscated payload appended after a module export' },
+    'RIG-026': { sev: 'high', conf: 'high', family: 'agentic', title: 'Anti-forensic git history rewrite' },
   });
 
   // ── Shared patterns ──────────────────────────────────────────────
@@ -215,6 +217,20 @@
   // (server/, .github/, or bare server.js/setup.*). The Miasma `.github/setup.js` and #5 `server/server.js`.
   // Common build commands (tsc, husky install, node ./scripts/build.js, prisma generate…) are not matched.
   const LIFECYCLE_SUSPICIOUS_SCRIPT = /\b(?:node|ts-node|tsx|deno|bun|python3?|ruby)\b[^\n|;&]*?(?:(?:\.github|server|src[\\/]+server)[\\/]+[^\s'"]*\.(?:js|mjs|cjs|ts|py|rb|sh)\b|\bserver\.(?:js|mjs|cjs|ts)\b|\bsetup\.(?:js|mjs|cjs|ts|py|sh)\b)/i;
+
+  // RIG-025: obfuscated executable payload appended AFTER a module export - the PolinRider tell
+  // (heavily obfuscated JS injected at the end of real config files: postcss/tailwind/eslint/next/...).
+  // A legit config ends at its export; an appended `eval`/`Function`/`global['x']=` plus an opaque blob
+  // (a 120+ char string-literal soup, a run of \xNN escapes, or a long fromCharCode list) is the injection.
+  const MODULE_EXPORT = /\bexport\s+default\b|\bmodule\s*\.\s*exports\b/g;
+  const TRAILING_EXEC = /\beval\s*\(|\bnew\s+Function\s*\(|\bFunction\s*\(|\bglobal(?:This)?\s*\[\s*['"`]/;
+  const OBFU_BLOB = /['"`][A-Za-z0-9+/=_%$!^&*()\-]{120,}['"`]|(?:\\x[0-9a-fA-F]{2}){20,}|String\.fromCharCode\s*\(\s*(?:0x[0-9a-fA-F]+|\d+)\s*(?:,\s*(?:0x[0-9a-fA-F]+|\d+)\s*){15,}\)/;
+
+  // RIG-026: an anti-forensic propagation script (PolinRider temp_auto_push.bat) - rewrites git history
+  // (force-push / --amend / --no-verify) AND tampers with the system clock to backdate the malicious
+  // commit. Either alone is plausible; the combination has no legitimate use.
+  const GIT_REWRITE = /\bgit\s+(?:commit|push|rebase)\b[^\n]*?(?:--no-verify|--force\b|--amend|-\w*f\b)/i;
+  const CLOCK_TAMPER = /\bdate\s+-s\b|\bdate\s+\/[ts]\b|\bSet-Date\b|\btimedatectl\s+set-time\b|\bsudo\s+date\b/i;
 
   // ── Utility functions ────────────────────────────────────────────
   function b64decode(s) {
@@ -479,6 +495,26 @@
         const idx = text.search(FUNC_CTOR_REQUIRE);
         add('RIG-006', lineOf(starts, idx), 'd_RIG_006_ctor', [], text.slice(idx, idx + 60), 'high');
       }
+    }
+
+    // ── RIG-025: obfuscated payload appended after a module export (PolinRider) ──
+    {
+      const re = new RegExp(MODULE_EXPORT.source, 'g');
+      let last = -1, m;
+      while ((m = re.exec(text)) !== null) last = m.index + m[0].length;
+      if (last >= 0) {
+        const tail = text.slice(last);
+        const execAt = tail.search(TRAILING_EXEC);
+        if (execAt >= 0 && OBFU_BLOB.test(tail)) {
+          add('RIG-025', lineOf(starts, last + execAt), 'd_RIG_025', [], tail.slice(execAt, execAt + 60));
+        }
+      }
+    }
+
+    // ── RIG-026: anti-forensic git-history-rewrite script (force-push/amend/no-verify + clock tamper) ──
+    if (GIT_REWRITE.test(text) && CLOCK_TAMPER.test(text)) {
+      const idx = text.search(GIT_REWRITE);
+      add('RIG-026', lineOf(starts, idx), 'd_RIG_026', [], text.slice(idx, idx + 60).split(/\r?\n/)[0]);
     }
 
     // ── RIG-021: dead-drop resolver (decoded string fetched as URL) ──

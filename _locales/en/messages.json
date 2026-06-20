@@ -26,6 +26,8 @@
   "rule_RIG_022_title": { "message": "Network response passed to eval/Function" },
   "rule_RIG_023_title": { "message": "Whole process.env exfiltrated to network" },
   "rule_RIG_024_title": { "message": "Lifecycle script runs an in-repo script" },
+  "rule_RIG_025_title": { "message": "Obfuscated payload appended after a module export" },
+  "rule_RIG_026_title": { "message": "Anti-forensic git history rewrite" },
 
   "d_RIG_001": { "message": "Line $1 is $2 chars; the off-screen tail holds executable/network tokens" },
   "d_RIG_002": { "message": "Line $1 hides code after $2 consecutive blanks" },
@@ -54,6 +56,8 @@
   "d_RIG_022": { "message": "A network response is passed to eval()/Function()" },
   "d_RIG_023": { "message": "The whole process.env is sent to a network sink" },
   "d_RIG_024": { "message": "$1 script runs an in-repo script from a non-build path" },
+  "d_RIG_025": { "message": "Obfuscated executable code is appended after the module export (injected payload)" },
+  "d_RIG_026": { "message": "A script rewrites git history and tampers with the system clock (anti-forensic)" },
 
   "ui_head_alarm_file": { "message": "This file shows malicious-repo traits" },
   "ui_head_alarm_repo": { "message": "This repo's config files show malicious-repo traits" },

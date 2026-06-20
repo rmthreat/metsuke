@@ -26,6 +26,8 @@
   "rule_RIG_022_title": { "message": "網路回應丟進 eval/Function 執行" },
   "rule_RIG_023_title": { "message": "整包 process.env 外送網路" },
   "rule_RIG_024_title": { "message": "lifecycle 腳本執行 repo 內腳本" },
+  "rule_RIG_025_title": { "message": "模組匯出後附加混淆 payload" },
+  "rule_RIG_026_title": { "message": "反鑑識 git 歷史改寫" },
 
   "d_RIG_001": { "message": "第 $1 行長 $2 字元,需往右捲才看得見的尾段含可執行/網路 token" },
   "d_RIG_002": { "message": "第 $1 行在 $2 個連續空白之後藏有程式碼" },
@@ -54,6 +56,8 @@
   "d_RIG_022": { "message": "網路回應內容被丟進 eval()/Function() 執行" },
   "d_RIG_023": { "message": "整包 process.env 被送往網路 sink" },
   "d_RIG_024": { "message": "$1 腳本執行非建置路徑的 repo 內腳本" },
+  "d_RIG_025": { "message": "模組匯出之後附加了混淆的可執行程式碼(注入式 payload)" },
+  "d_RIG_026": { "message": "腳本改寫 git 歷史並竄改系統時鐘(反鑑識)" },
 
   "ui_head_alarm_file": { "message": "這個檔案有惡意 repo 的特徵" },
   "ui_head_alarm_repo": { "message": "這個 repo 的設定檔有惡意特徵" },

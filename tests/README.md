@@ -68,6 +68,8 @@ the false-positive guards — must stay silent. All payloads are inert (reserved
 | RIG-022 response→eval | `axios` resp → `eval(r.data…)`; `fetch` → `Function(res.data)` | `eval(local.value)`; `eval(store.data)` w/ only an import |
 | RIG-023 whole env exfil | `JSON.stringify(process.env)` → `fetch`; spread → `URLSearchParams` | debug log + unrelated import; single-var telemetry |
 | RIG-024 lifecycle in-repo script | `prepare`→`server/server.js`; `postinstall`→`.github/setup.js` | `node ./scripts/build.js`; normal build pipeline |
+| RIG-025 payload after module export *(PolinRider)* | config export then appended `eval` blob; `module.exports` then `fromCharCode` eval | normal config (export only); long asset string but no exec |
+| RIG-026 anti-forensic git rewrite | `--amend --no-verify` + `date -s` + force push; `Set-Date` + `git push --force` | legit force-push (no clock tamper); sets date but no git rewrite |
 | RIG-012 *(experimental)* | non-registry dependency URL | normal semver dependency |
 
 > Experimental rules (off by default) are not part of the enabled-rule coverage gate. RIG-014

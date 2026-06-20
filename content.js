@@ -63,6 +63,18 @@
     '.env',
     'config.env',
     'server/config/config.env',
+    // Build/config files PolinRider appends its obfuscated payload to (~62% of infections live here).
+    'postcss.config.mjs',
+    'postcss.config.js',
+    'tailwind.config.js',
+    'tailwind.config.ts',
+    'eslint.config.mjs',
+    'eslint.config.js',
+    'next.config.mjs',
+    'next.config.js',
+    'vite.config.js',
+    'vite.config.ts',
+    'webpack.config.js',
   ];
 
   // ── State ────────────────────────────────────────────────────────

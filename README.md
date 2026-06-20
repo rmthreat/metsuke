@@ -17,7 +17,7 @@ Available in English, 繁體中文, and 日本語 (follows the browser language)
 | File | Responsibility |
 |---|---|
 | `manifest.json` | MV3; only the `storage` permission + named host permissions |
-| `detector.js` | Pure detection engine (no DOM / no network); rules RIG-001~024 and threshold constants |
+| `detector.js` | Pure detection engine (no DOM / no network); rules RIG-001~026 and threshold constants |
 | `content.js` | URL parsing, text fetch (raw -> GitHub embedded JSON), idle analysis, Shadow DOM banner, reveal, SPA navigation detection |
 | `background.js` | Service worker: proxy the raw fetch (with cookies), set the badge |
 | `popup.html/css/js` | Verdict summary, trust list (allowlist), master switch |
@@ -76,11 +76,13 @@ test inventory and how to add cases are in [`tests/README.md`](tests/README.md).
 - **Repo home / tree pages**: a targeted scan of fixed high-value entry files
   (`package.json`, `.vscode/tasks.json`, `.vscode/settings.json`, `.claude/settings*.json`,
   `.gemini/settings*.json`, `.cursorrules`, `.cursor/rules/setup.mdc`,
-  `.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.husky/*`) -
+  `.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.husky/*`,
+  backend entry points (`index.js`/`server.js`/…), `.env`-class files, and build/config files
+  PolinRider injects into (`tailwind.config.js`, `postcss.config.mjs`, `eslint.config.mjs`, …)) -
   so you are warned on the landing page without opening each file. Findings are tagged with
   their source file and are click-through.
 
-## Detection rules (21 enabled)
+## Detection rules (23 enabled)
 
 `Trigger` is what makes a rule applicable: **content** rules match any fetched text
 (file-primary - the malicious source usually lives in a file you open); **path-gated**
@@ -102,6 +104,8 @@ exactly what the repo-home scan fetches).
 | RIG-021 | Dead-drop resolver (decoded string fetched as URL) | content | ✓ | ✓ | file |
 | RIG-022 | Network response passed to eval/Function | content | ✓ | ✓ | file |
 | RIG-023 | Whole process.env exfiltrated to network | content | ✓ | ✓ | file |
+| RIG-025 | Obfuscated payload appended after a module export (PolinRider) | content | ✓ | ✓ | file |
+| RIG-026 | Anti-forensic git history rewrite (force-push + clock tamper) | content | ✓ | ✓ | file |
 | RIG-010 | Install script downloads/executes | `package.json` | ✓ | ✓ | repo |
 | RIG-011 | Install script connects to IP | `package.json` | ✓ | ✓ | repo |
 | RIG-013 | VS Code run-on-open setting | `.vscode/` | ✓ | ✓ | repo |

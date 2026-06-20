@@ -687,6 +687,7 @@ function runSuite(detector) {
     else { c.neg++; if (!ok) c.negFail++; }
   }
   const shortLines = (...tail) => ['const a=1;', 'const b=2;', 'const c=3;', 'const d=4;', 'const e=5;', ...tail].join('\n');
+  const blob120 = 'A1b2C3d4E5f6G7h8'.repeat(8); // 128-char opaque string literal for obfuscation-blob cases
 
   // ── RIG-001: off-screen hidden code (long line >300, exec token in the tail, no big whitespace gap) ──
   expectRule('RIG-001', 'pos', 'long comment tail has execSync',
@@ -830,6 +831,26 @@ function runSuite(detector) {
   expectRule('RIG-024', 'neg', 'postinstall → node ./scripts/build.js', JSON.stringify({ scripts: { postinstall: 'node ./scripts/build.js' } }), { fileName: 'package.json' });
   expectRule('RIG-024', 'neg', 'normal build pipeline', JSON.stringify({ scripts: { prepare: 'husky install', build: 'tsc -p .' } }), { fileName: 'package.json' });
 
+  // ── RIG-025: obfuscated payload appended after a module export (PolinRider) ──
+  expectRule('RIG-025', 'pos', 'tailwind config: export then appended eval blob',
+    'export default { content: ["./src/**/*.js"], theme: {} };\n;global[\'_V\']="8-a";var MDy=function(s){return s};eval(MDy("' + blob120 + '"));', { fileName: 'tailwind.config.js', path: 'tailwind.config.js' });
+  expectRule('RIG-025', 'pos', 'module.exports then fromCharCode eval payload',
+    'module.exports = { plugins: [] };\n;eval(String.fromCharCode(104,101,108,108,111,104,101,108,108,111,104,101,108,108,111,104,101));', { fileName: 'postcss.config.js', path: 'postcss.config.js' });
+  expectRule('RIG-025', 'neg', 'normal tailwind config (export only)',
+    '/** @type {import("tailwindcss").Config} */\nexport default { content: ["./src/**/*.{js,ts}"], theme: { extend: {} }, plugins: [] };\n', { fileName: 'tailwind.config.js', path: 'tailwind.config.js' });
+  expectRule('RIG-025', 'neg', 'config with a long asset string but no exec',
+    'export default { logo: "' + blob120 + '", theme: {} };\n', { fileName: 'next.config.js', path: 'next.config.js' });
+
+  // ── RIG-026: anti-forensic git-history-rewrite script (force-push/amend/no-verify + clock tamper) ──
+  expectRule('RIG-026', 'pos', 'bat: amend --no-verify + date -s + force push',
+    '@echo off\ndate -s "2024-01-01 10:00:00"\ngit commit --amend --no-verify -m keep\ngit push -uf origin main\n', { fileName: 'temp_auto_push.bat', path: 'temp_auto_push.bat' });
+  expectRule('RIG-026', 'pos', 'sh: Set-Date + git push --force',
+    '#!/bin/sh\nSet-Date "2024-01-01"\ngit push --force origin main\n', { fileName: 'rewrite.sh', path: 'rewrite.sh' });
+  expectRule('RIG-026', 'neg', 'legit force-push (no clock tamper)',
+    '#!/bin/sh\ngit push --force-with-lease origin main\n', { fileName: 'deploy.sh', path: 'deploy.sh' });
+  expectRule('RIG-026', 'neg', 'sets the date but no git rewrite',
+    '#!/bin/sh\nsudo date -s "2024-01-01"\necho synced\n', { fileName: 'ntp.sh', path: 'ntp.sh' });
+
   // Experimental rules (off by default; not part of the enabled-rule coverage gate).
   expectRule('RIG-012', 'pos', 'non-registry dependency URL', JSON.stringify({ dependencies: { evil: 'https://203.0.113.1/p.tgz' } }), { fileName: 'package.json', includeExperimental: true });
   expectRule('RIG-012', 'neg', 'normal semver dependency', JSON.stringify({ dependencies: { react: '^18.2.0' } }), { fileName: 'package.json', includeExperimental: true });
@@ -850,7 +871,7 @@ function runSuite(detector) {
   check('printable-ratio threshold 0.2', detector.THRESHOLDS.MIN_PRINTABLE === 0.2);
   check('entropy threshold 4.6', detector.THRESHOLDS.ENTROPY_MIN === 4.6);
   check('file size limit 3MB', detector.THRESHOLDS.MAX_FILE_BYTES === 3 * 1024 * 1024);
-  check('enabled rule count = 21', detector.enabledCount === 21);
+  check('enabled rule count = 23', detector.enabledCount === 23);
 
   // ── Evaluation metrics derived from the coverage matrix ──
   // Treat each case as a labelled sample: positives should fire (recall = TP rate), negatives should
