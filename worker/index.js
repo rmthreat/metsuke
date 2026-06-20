@@ -33,13 +33,14 @@ export default {
     }
 
     const started = Date.now();
-    const { pass, fail, failures } = runSuite(detector);
+    const { pass, fail, failures, metrics } = runSuite(detector);
     const body = {
       ok: fail === 0,
       runtime: 'cloudflare-workers (workerd)',
       rules: detector.enabledCount,
       pass,
       fail,
+      metrics,
       durationMs: Date.now() - started,
       failures,
     };

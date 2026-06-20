@@ -66,6 +66,10 @@ So, **do not** verify with `node --check` or `node -e "<malware-ish inline>"`. I
   Returns HTTP 200 + `{ "ok": true, "pass": …, "fail": 0 }` when green, 500 when red. Full deploy/CI
   notes in [`worker/README.md`](worker/README.md).
 
+The suite also reports **coverage metrics** — per-rule positive/negative cases, `recall`,
+`specificity`, and a gate that fails if any enabled rule lacks a positive or negative case. The full
+test inventory and how to add cases are in [`tests/README.md`](tests/README.md).
+
 ## Two analysis modes
 
 - **File pages** (`/blob`, `/-/blob`, `/src`): real-time analysis of the single file you open.
