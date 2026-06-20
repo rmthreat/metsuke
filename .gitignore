@@ -1,6 +1,10 @@
 # Build output
 dist/
 
+# Node / Cloudflare Worker tooling (test endpoint only; not part of the extension)
+node_modules/
+.wrangler/
+
 # Internal docs (specs, design, store listing copy, mockups) - not shipped/tracked
 docs/
 
