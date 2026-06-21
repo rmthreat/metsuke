@@ -376,6 +376,13 @@
 
     const wsGapRe = new RegExp(`[ \\t]{${THRESHOLDS.WS_GAP},}`);
 
+    // Tiered execution (SPEC §4 staged detection): the "fast" tier runs only cheap, high-signal
+    // rules so a preliminary verdict can show instantly; the expensive base64 decode/permutation/
+    // entropy work (RIG-003 / RIG-005 / RIG-004-post-decode / RIG-014) is gated behind `deep` and
+    // runs in the follow-up pass. A deep result is a strict superset of a fast one, so the caller
+    // can replace (not merge) the preliminary findings with the final ones.
+    const deep = ctx.tier !== 'fast';
+
     // ── Per-line rules: RIG-001 / RIG-002 / RIG-014 ──
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -406,8 +413,8 @@
         }
       }
 
-      // RIG-014 (experimental): high-entropy string beyond the right edge
-      if (!minifiedLike) {
+      // RIG-014 (experimental, deep): high-entropy string beyond the right edge
+      if (deep && !minifiedLike) {
         const tail = line.slice(THRESHOLDS.VISIBLE_COL);
         let tm;
         HI_ENTROPY_TOKEN.lastIndex = 0;
@@ -429,9 +436,9 @@
       }
     }
 
-    // ── RIG-003 / RIG-005: base64 C2 reconstruction ──
+    // ── RIG-003 / RIG-005: base64 C2 reconstruction (deep tier: per-literal decode + permutations) ──
     // RIG-005: decode a single literal directly
-    {
+    if (deep) {
       const re = new RegExp(B64_FRAGMENT.source, 'g');
       let m;
       while ((m = re.exec(text)) !== null) {
@@ -445,7 +452,7 @@
       }
     }
     // RIG-003: fragmentation + swap reassembly (per-line groups + array groups; full permutations ≤ 4 fragments)
-    {
+    if (deep) {
       const tryGroup = (frags, lineNo) => {
         if (frags.length < 2 || frags.length > 4) return;
         if (!frags.some((f) => f.length >= 8)) return; // at least one fragment of substantial length

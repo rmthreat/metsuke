@@ -863,6 +863,34 @@ function runSuite(detector) {
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // Tiered execution (staged detection): fast pass = cheap high-signal rules only;
+  // deep pass (default) adds the base64 decode/permutation/entropy work. Deep ⊇ fast.
+  // ════════════════════════════════════════════════════════════════════
+  {
+    const fastRules = (text, ctx) => rulesOf(detector.analyze(text, Object.assign({ tier: 'fast' }, ctx)));
+    const fullRules = (text, ctx) => rulesOf(detector.analyze(text, ctx));
+
+    // deep rules are skipped in the fast pass …
+    const b64ip = `const e="${b64('198.51.100.23:9090')}";`;
+    check('tier: RIG-005 fires on full pass', fullRules(b64ip, { fileName: 'a.js' }).has('RIG-005'));
+    check('tier: RIG-005 omitted in fast pass', !fastRules(b64ip, { fileName: 'a.js' }).has('RIG-005'));
+    const spliced = (() => { const f = b64('10.0.0.1:1224'); const s = [f.slice(0, 8), f.slice(8, 16), f.slice(16)]; return 'const p=["' + s[2] + '","' + s[0] + '","' + s[1] + '"];\nconst h=atob(p[1]+p[2]+p[0]);'; })();
+    check('tier: RIG-003 fires on full pass', fullRules(spliced, { fileName: 'n.js' }).has('RIG-003'));
+    check('tier: RIG-003 omitted in fast pass', !fastRules(spliced, { fileName: 'n.js' }).has('RIG-003'));
+
+    // … but cheap high-signal rules still fire in the fast pass
+    check('tier: RIG-004 plaintext fires in fast', fastRules('const c="http://203.0.113.5:1224/x";', { fileName: 'a.js' }).has('RIG-004'));
+    check('tier: RIG-013 fires in fast', fastRules(JSON.stringify({ tasks: [{ runOptions: { runOn: 'folderOpen' }, command: 'node x.js' }] }), { fileName: 'tasks.json', path: '.vscode/tasks.json' }).has('RIG-013'));
+    check('tier: RIG-007 fires in fast', fastRules('eval(atob("' + b64('x') + '"));', { fileName: 'x.js' }).has('RIG-007'));
+
+    // deep ⊇ fast: nothing the fast pass finds disappears from the full pass
+    const multi = 'eval(atob(remote));\nconst c="198.51.100.9:1244";';
+    const fSet = fastRules(multi, { fileName: 'm.js' });
+    const uSet = fullRules(multi, { fileName: 'm.js' });
+    check('tier: deep is a superset of fast', [...fSet].every((r) => uSet.has(r)), { fast: [...fSet], full: [...uSet] });
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // Threshold constants locked (SPEC §3)
   // ════════════════════════════════════════════════════════════════════
   check('VISIBLE_COL=160', detector.THRESHOLDS.VISIBLE_COL === 160);
