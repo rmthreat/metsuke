@@ -82,6 +82,21 @@ test inventory and how to add cases are in [`tests/README.md`](tests/README.md).
   so you are warned on the landing page without opening each file. Findings are tagged with
   their source file and are click-through.
 
+**Staged detection (time to first signal).** Both modes surface a preliminary verdict fast, then
+upgrade it:
+
+- `detector.analyze(text, ctx)` runs a **fast tier** (cheap, high-signal rules) when `ctx.tier ===
+  'fast'`, deferring the expensive base64 decode / permutation / entropy work (RIG-003/005/014) to the
+  default **deep** pass. A deep result is a strict superset of a fast one, so the caller replaces (not
+  merges) the preliminary findings.
+- **File mode**: the instant GitHub-embedded pass runs the fast tier for a preliminary verdict; the raw
+  fetch then runs the full deep analysis as the final basis.
+- **Repo mode**: entry files are fetched in two phases — `SCAN_HOT` (run-on-open/install configs +
+  PolinRider's primary targets) first for a fast preliminary, then `SCAN_TAIL` (lower-prevalence entry
+  points, `.env`-class, secondary configs).
+- The banner pops on the first signal and **re-pops once if the combined level escalates to `alarm`**
+  (overriding a prior dismiss); lesser updates refresh in place.
+
 ## Detection rules (23 enabled)
 
 `Trigger` is what makes a rule applicable: **content** rules match any fetched text

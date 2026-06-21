@@ -33,23 +33,33 @@
 
   // Targeted scan list for repo home pages: "run-on-open / run-on-install" entry files that
   // recur across past campaign reports. Only these requests per repo home page; 404/non-file → silently skip.
-  const SCAN_TARGETS = [
+  //
+  // Staged for time-to-first-signal (SPEC §4): SCAN_HOT is the high-prevalence, high-signal set
+  // (run-on-open/install configs + PolinRider's primary injection targets) and is fetched first so a
+  // preliminary verdict shows fast; SCAN_TAIL (lower-prevalence entry points, .env-class, secondary
+  // config variants) is fetched in a second phase and can upgrade the verdict afterwards.
+  const SCAN_HOT = [
     'package.json',
     '.vscode/tasks.json',
     '.vscode/settings.json',
     '.claude/settings.json',
     '.claude/settings.local.json',
+    '.gemini/settings.json',       // 2026 "Miasma" worm: SessionStart hook
+    '.gemini/settings.local.json',
     '.cursorrules',
+    '.cursor/rules/setup.mdc',     // 2026 "Miasma" worm: alwaysApply prompt injection
     '.github/copilot-instructions.md',
     'CLAUDE.md',
     'AGENTS.md',
     'GEMINI.md',
-    '.husky/pre-commit',     // 2026 Lazarus new hiding spot (git hooks)
+    '.husky/pre-commit',           // 2026 Lazarus new hiding spot (git hooks)
     '.husky/post-checkout',
     '.husky/post-merge',
-    '.gemini/settings.json',       // 2026 "Miasma" worm: SessionStart hook
-    '.gemini/settings.local.json',
-    '.cursor/rules/setup.mdc',     // 2026 "Miasma" worm: alwaysApply prompt injection
+    'tailwind.config.js',          // PolinRider primary injection targets (~62% of infections)
+    'postcss.config.mjs',
+    'eslint.config.mjs',
+  ];
+  const SCAN_TAIL = [
     // Backend entry points: family-A stage-1 loaders hide in conventional server files
     // with no folderOpen vector, so a repo-home scan that only reads config files misses them.
     'index.js',
@@ -63,12 +73,9 @@
     '.env',
     'config.env',
     'server/config/config.env',
-    // Build/config files PolinRider appends its obfuscated payload to (~62% of infections live here).
-    'postcss.config.mjs',
+    // Secondary PolinRider config variants.
     'postcss.config.js',
-    'tailwind.config.js',
     'tailwind.config.ts',
-    'eslint.config.mjs',
     'eslint.config.js',
     'next.config.mjs',
     'next.config.js',
@@ -76,6 +83,7 @@
     'vite.config.ts',
     'webpack.config.js',
   ];
+  const SCAN_TARGETS = SCAN_HOT.concat(SCAN_TAIL);
 
   // ── State ────────────────────────────────────────────────────────
   let settings = { enabled: true, allowlist: [] };
@@ -236,6 +244,7 @@
     verdict = { status: 'analyzing', mode: 'file', findings: [], source: null };
     const ctx = { fileName: page.fileName, path: page.filePath };
     let finalized = false; // raw has produced the final verdict
+    let shownAlarm = false; // whether an "alarm" banner has already been shown (for escalation re-pop)
 
     const applyResult = (result, source, scanning) => {
       if (epoch !== navEpoch) return;
@@ -249,8 +258,19 @@
         };
       }
       reportBadge();
-      if (verdict.status === 'risk' && !dismissed.has(location.href)) showBanner(page);
-      else removeBanner(); // retract the banner if a preliminary verdict was shown but the final correction is clean
+      if (verdict.status === 'risk') {
+        // Escalation to alarm (e.g. the deep raw pass upgrades a fast preliminary) re-pops once,
+        // overriding a prior dismiss; lesser updates respect the dismiss.
+        if (verdict.level === 'alarm' && !shownAlarm) dismissed.delete(location.href);
+        if (!dismissed.has(location.href)) {
+          showBanner(page);
+          if (verdict.level === 'alarm') shownAlarm = true;
+        } else {
+          removeBanner();
+        }
+      } else {
+        removeBanner(); // retract the banner if a preliminary verdict was shown but the final correction is clean
+      }
     };
 
     // Re-evaluation of the same page → analyze directly from cache, no refetch
@@ -268,7 +288,8 @@
     if (page.platform === 'github') {
       const early = readGithubEmbedded();
       if (early != null && early.length <= MAX_FILE_BYTES) {
-        const r = await idleAnalyze(early, ctx);
+        // Fast tier for the instant preliminary verdict; the raw pass below runs the full (deep) analysis.
+        const r = await idleAnalyze(early, Object.assign({ tier: 'fast' }, ctx));
         if (epoch !== navEpoch) return;
         // raw still running in the background → mark as re-checking, banner shows loading
         if (!finalized) applyResult(r, 'embedded', true);
@@ -316,55 +337,63 @@
     }
   }
 
-  // ── repo home targeted scan (streaming) ──────────────────────────
-  // Analyze each entry file as soon as it returns; on the first hit, attach the banner + badge immediately without waiting for the rest.
+  // ── repo home targeted scan (two-phase streaming) ──────────────────────────
+  // Phase 1 fetches SCAN_HOT (high-signal entry files) so a preliminary verdict shows fast; phase 2
+  // fetches SCAN_TAIL and can upgrade it. Each file is analyzed as soon as it returns; the banner pops
+  // on the first hit, and re-pops once if the combined level escalates to "alarm" (even after dismiss).
   async function runRepoScan(page, epoch) {
     verdict = { status: 'analyzing', mode: 'repo', findings: [], source: 'raw',
       scanned: 0, scanning: true, pending: SCAN_TARGETS.length };
     let scanned = 0;
     let pending = SCAN_TARGETS.length;
+    let shownAlarm = false; // whether an "alarm" banner has already been shown (for escalation re-pop)
 
-    SCAN_TARGETS.forEach((rel) => {
-      sendMessage({ type: 'fetchRaw', url: page.rawBase + rel }).then(async (res) => {
-        pending--;
-        if (epoch !== navEpoch) return;
-        verdict.pending = pending;
+    const handle = async (rel, res) => {
+      pending--;
+      if (epoch !== navEpoch) return;
+      verdict.pending = pending;
+      if (!(res && res.ok && typeof res.text === 'string' && res.text.length <= MAX_FILE_BYTES)) return;
+      scanned++;
+      const fileName = rel.split('/').pop();
+      const r = await idleAnalyze(res.text, { fileName, path: rel });
+      if (epoch !== navEpoch) return;
+      verdict.scanned = scanned;
+      verdict.pending = pending;
+      if (!r.findings.length) return;
+      for (const f of r.findings) {
+        verdict.findings.push(Object.assign({}, f, { file: rel, fileUrl: page.blobBase + rel }));
+      }
+      verdict.status = 'risk';
+      verdict.scanning = pending > 0;
+      // Combine signals across entry files, then decide the banner level.
+      verdict.level = detector.assess(verdict.findings).level;
+      reportBadge();
+      // Escalation to alarm re-pops once, overriding a prior dismiss; lesser updates respect dismiss.
+      if (verdict.level === 'alarm' && !shownAlarm) dismissed.delete(location.href);
+      if (!dismissed.has(location.href)) {
+        showBanner(page);
+        if (verdict.level === 'alarm') shownAlarm = true;
+      }
+    };
 
-        if (res && res.ok && typeof res.text === 'string' && res.text.length <= MAX_FILE_BYTES) {
-          scanned++;
-          const fileName = rel.split('/').pop();
-          const r = await idleAnalyze(res.text, { fileName, path: rel });
-          if (epoch !== navEpoch) return;
-          verdict.scanned = scanned;
-          verdict.pending = pending;
-          if (r.findings.length) {
-            for (const f of r.findings) {
-              verdict.findings.push(Object.assign({}, f, { file: rel, fileUrl: page.blobBase + rel }));
-            }
-            verdict.status = 'risk';
-            verdict.scanning = pending > 0;
-            // After aggregating across entry files, assess the combined level (signals from multiple files in the repo are combined together)
-            verdict.level = detector.assess(verdict.findings).level;
-            reportBadge();
-            // Pop the banner on the first danger signal (with loading if the scan isn't finished yet)
-            if (!dismissed.has(location.href)) showBanner(page);
-          }
-        }
+    const scanBatch = (targets) => Promise.all(targets.map((rel) =>
+      sendMessage({ type: 'fetchRaw', url: page.rawBase + rel }).then((res) => handle(rel, res))));
 
-        // All requests done → finalize
-        if (pending === 0 && epoch === navEpoch) {
-          verdict.scanned = scanned;
-          verdict.scanning = false;
-          if (verdict.status === 'risk') {
-            // Redraw once to remove the loading spinner
-            if (!dismissed.has(location.href)) showBanner(page);
-          } else {
-            verdict.status = scanned === 0 ? 'unreadable' : 'clean';
-            reportBadge();
-          }
-        }
-      });
-    });
+    // Phase 1 (hot) → preliminary; phase 2 (tail) → upgrade.
+    await scanBatch(SCAN_HOT);
+    if (epoch !== navEpoch) return;
+    await scanBatch(SCAN_TAIL);
+    if (epoch !== navEpoch) return;
+
+    // Finalize.
+    verdict.scanned = scanned;
+    verdict.scanning = false;
+    if (verdict.status === 'risk') {
+      if (!dismissed.has(location.href)) showBanner(page); // redraw once to drop the loading spinner
+    } else {
+      verdict.status = scanned === 0 ? 'unreadable' : 'clean';
+      reportBadge();
+    }
   }
 
   // ── Dispatch ─────────────────────────────────────────────────────
