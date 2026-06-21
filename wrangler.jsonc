@@ -1,0 +1,16 @@
+{
+  // Cloudflare Worker that runs the detector test suite in the real workerd runtime.
+  // It is NOT part of the shipped browser extension (pack.sh / release.yml ship a fixed
+  // whitelist of runtime files and do not include this Worker, package.json or node_modules).
+  //
+  //   wrangler login && wrangler deploy        # one-time, then it has a stable *.workers.dev URL
+  //   curl https://<name>.<subdomain>.workers.dev/test
+  //
+  // No nodejs_compat needed: detector.js uses native atob and tests/suite.js uses native btoa;
+  // the Buffer fallbacks in both are never reached in workerd.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "metsuke-detector-tests",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-06-01",
+  "observability": { "enabled": true }
+}

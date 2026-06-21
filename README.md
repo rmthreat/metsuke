@@ -17,11 +17,13 @@ Available in English, 繁體中文, and 日本語 (follows the browser language)
 | File | Responsibility |
 |---|---|
 | `manifest.json` | MV3; only the `storage` permission + named host permissions |
-| `detector.js` | Pure detection engine (no DOM / no network); rules RIG-001~020 and threshold constants |
+| `detector.js` | Pure detection engine (no DOM / no network); rules RIG-001~026 and threshold constants |
 | `content.js` | URL parsing, text fetch (raw -> GitHub embedded JSON), idle analysis, Shadow DOM banner, reveal, SPA navigation detection |
 | `background.js` | Service worker: proxy the raw fetch (with cookies), set the badge |
 | `popup.html/css/js` | Verdict summary, trust list (allowlist), master switch |
-| `tests/run.js` | Positive rule fixtures + false-positive corpus (0 high-severity FP gate) |
+| `tests/suite.js` | Runtime-agnostic assertions (`runSuite(detector)`); shared verbatim by the Node runner and the Cloudflare Worker (single source of truth) |
+| `tests/run.js` | Node runner for the suite (`node tests/run.js`): positive fixtures + false-positive corpus (0 high-severity FP gate) |
+| `worker/`, `wrangler.jsonc` | Cloudflare Worker that runs the suite in workerd and serves `GET /test` (see `worker/README.md`) — not shipped in the extension |
 | `_locales/{en,zh_TW,ja}` | i18n message catalogs (English default) |
 
 ## Development
@@ -36,17 +38,51 @@ bash scripts/pack.sh
 
 Load it locally: `chrome://extensions` -> Developer mode -> "Load unpacked" -> pick this directory.
 
+### Testing without local EDR interference
+
+The fixtures are full of malware patterns (`eval`/`atob`/`child_process`, C2 IPs, wallet paths…).
+A local endpoint-security agent (EDR) flags some Node invocations as suspicious and **kills them
+(exit 137), which silently distorts results**. Know which is which:
+
+| Command | Local? | Note |
+|---|:--:|---|
+| `node tests/run.js` | ✅ runs | executing a real file is fine — this is the canonical local run |
+| `node --check <file>` | ❌ **killed** | syntax-check parse trips the EDR; don't use it |
+| `node -e "<inline code with eval/atob/fetch/process.env/…>"` | ❌ **killed** | inline malware-pattern strings trip the EDR |
+
+So, **do not** verify with `node --check` or `node -e "<malware-ish inline>"`. Instead:
+
+- **Quick probe** → write it to a temp file (e.g. `tests/_probe.js`), run `node tests/_probe.js`, then
+  delete it. Executing a file is not blocked.
+- **High-fidelity / zero-local-Node verification** → use the deployed **Cloudflare Worker** test
+  endpoint, which runs the exact same `tests/suite.js` inside workerd (closer to the extension's
+  content-script isolated world than Node, and entirely off your machine):
+
+  ```sh
+  npm install && npx wrangler login && npx wrangler deploy   # one-time
+  curl -fsS https://metsuke-detector-tests.gesarlin0803.workers.dev/test
+  ```
+
+  Returns HTTP 200 + `{ "ok": true, "pass": …, "fail": 0 }` when green, 500 when red. Full deploy/CI
+  notes in [`worker/README.md`](worker/README.md).
+
+The suite also reports **coverage metrics** — per-rule positive/negative cases, `recall`,
+`specificity`, and a gate that fails if any enabled rule lacks a positive or negative case. The full
+test inventory and how to add cases are in [`tests/README.md`](tests/README.md).
+
 ## Two analysis modes
 
 - **File pages** (`/blob`, `/-/blob`, `/src`): real-time analysis of the single file you open.
 - **Repo home / tree pages**: a targeted scan of fixed high-value entry files
   (`package.json`, `.vscode/tasks.json`, `.vscode/settings.json`, `.claude/settings*.json`,
   `.gemini/settings*.json`, `.cursorrules`, `.cursor/rules/setup.mdc`,
-  `.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.husky/*`) -
+  `.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.husky/*`,
+  backend entry points (`index.js`/`server.js`/…), `.env`-class files, and build/config files
+  PolinRider injects into (`tailwind.config.js`, `postcss.config.mjs`, `eslint.config.mjs`, …)) -
   so you are warned on the landing page without opening each file. Findings are tagged with
   their source file and are click-through.
 
-## Detection rules (17 enabled)
+## Detection rules (23 enabled)
 
 `Trigger` is what makes a rule applicable: **content** rules match any fetched text
 (file-primary - the malicious source usually lives in a file you open); **path-gated**
@@ -65,6 +101,11 @@ exactly what the repo-home scan fetches).
 | RIG-008 | Accesses wallet/key paths | content | ✓ | ✓ | file |
 | RIG-009 | Accesses browser profile dir (med) | content | ✓ | ✓ | file |
 | RIG-019 | SSH authorized_keys backdoor write | content | ✓ | ✓ | file |
+| RIG-021 | Dead-drop resolver (decoded string fetched as URL) | content | ✓ | ✓ | file |
+| RIG-022 | Network response passed to eval/Function | content | ✓ | ✓ | file |
+| RIG-023 | Whole process.env exfiltrated to network | content | ✓ | ✓ | file |
+| RIG-025 | Obfuscated payload appended after a module export (PolinRider) | content | ✓ | ✓ | file |
+| RIG-026 | Anti-forensic git history rewrite (force-push + clock tamper) | content | ✓ | ✓ | file |
 | RIG-010 | Install script downloads/executes | `package.json` | ✓ | ✓ | repo |
 | RIG-011 | Install script connects to IP | `package.json` | ✓ | ✓ | repo |
 | RIG-013 | VS Code run-on-open setting | `.vscode/` | ✓ | ✓ | repo |
@@ -72,6 +113,7 @@ exactly what the repo-home scan fetches).
 | RIG-017 | AI instruction file hidden injection chars | instruction/rules files | ✓ | ✓ | repo |
 | RIG-018 | Git hook (husky) runs on open | `.husky/` | ✓ | ✓ | repo |
 | RIG-020 | AI rules file instructs the agent to run a command | `.cursor/rules`·`.cursorrules` | ✓ | ✓ | repo |
+| RIG-024 | Lifecycle script runs an in-repo script | `package.json` | ✓ | ✓ | repo |
 
 Experimental (off by default):
 

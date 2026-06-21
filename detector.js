@@ -1,7 +1,7 @@
 /**
  * Metsuke - detector.js
  * Pure detection engine: no DOM, no network (SPEC §6).
- * All rules (RIG-001 ~ RIG-014) and threshold constants are locked here;
+ * All rules (RIG-001 ~ RIG-024) and threshold constants are locked here;
  * any change to a threshold constant must include before/after test results (SPEC §3 / §10).
  *
  * For rule provenance see docs/SPEC.md appendix A.
@@ -27,6 +27,7 @@
     'RIG-001', 'RIG-002', 'RIG-003', 'RIG-004', 'RIG-005', 'RIG-006',
     'RIG-007', 'RIG-008', 'RIG-009', 'RIG-010', 'RIG-011',
     'RIG-013', 'RIG-016', 'RIG-017', 'RIG-018', 'RIG-019', 'RIG-020',
+    'RIG-021', 'RIG-022', 'RIG-023', 'RIG-024', 'RIG-025', 'RIG-026',
   ]);
 
   // Each rule: sev = risk severity; conf = confidence of a standalone hit (inverse of
@@ -53,6 +54,12 @@
     'RIG-018': { sev: 'high', conf: 'high', family: 'agentic', title: 'Git hook (husky) runs on open' },
     'RIG-019': { sev: 'high', conf: 'high', family: 'steal',   title: 'SSH authorized_keys backdoor write' },
     'RIG-020': { sev: 'high', conf: 'med',  family: 'agentic', title: 'AI rules file instructs agent to run a command' },
+    'RIG-021': { sev: 'high', conf: 'med',  family: 'c2',      title: 'Dead-drop resolver (decoded string fetched as URL)' },
+    'RIG-022': { sev: 'high', conf: 'high', family: 'exec',    title: 'Network response passed to eval/Function' },
+    'RIG-023': { sev: 'high', conf: 'med',  family: 'steal',   title: 'Whole process.env exfiltrated to network' },
+    'RIG-024': { sev: 'high', conf: 'med',  family: 'install', title: 'Lifecycle script runs an in-repo script' },
+    'RIG-025': { sev: 'high', conf: 'med',  family: 'exec',    title: 'Obfuscated payload appended after a module export' },
+    'RIG-026': { sev: 'high', conf: 'high', family: 'agentic', title: 'Anti-forensic git history rewrite' },
   });
 
   // ── Shared patterns ──────────────────────────────────────────────
@@ -100,8 +107,17 @@
     { re: /ibnejdfjmmkpcnlpebklmnkoeoihofec/,                                              what: 'TronLink extension data' },
     { re: /fhbohimaelbohpjbbldcngcnapndodjp/,                                              what: 'Binance Chain extension data' },
     { re: /\bUTC--[0-9T:.-]+--[0-9a-fA-F]{40}\b/,                                          what: 'Ethereum keystore' },
-    { re: /(?:mnemonic|seedPhrase|seed_phrase|secretRecoveryPhrase)\s*[:=]/i,             what: 'mnemonic / seed phrase' },
+    // Behavior-gated: a bare `mnemonic`/`seedPhrase` variable name, type field, config key or prose
+    // is just text — legit web3/wallet SDKs use it constantly. Only count it when a steal behavior
+    // (network exfil or filesystem read/write) sits nearby (see WALLET_BEHAVIOR). The concrete-path
+    // patterns above (id.json, extension IDs, keystore) stay high-confidence and are NOT gated.
+    { re: /(?:mnemonic|seedPhrase|seed_phrase|secretRecoveryPhrase)\s*[:=]/i,             what: 'mnemonic / seed phrase', behavior: true },
   ];
+
+  // Steal behavior in the window around a mnemonic match: a network call (exfil) or filesystem
+  // read/write (harvest). Call-shaped so a bare `import axios` does not satisfy the gate.
+  const WALLET_BEHAVIOR =
+    /\bfetch\s*\(|\baxios\s*(?:\.\s*\w+\s*)?\(|\bgot\s*\(|\bnew\s+XMLHttpRequest\b|\bnew\s+WebSocket\b|\b(?:navigator\s*\.\s*)?sendBeacon\s*\(|\b(?:readFile|readFileSync|writeFile|writeFileSync|appendFile|appendFileSync|createReadStream)\s*\(|\brequire\s*\(\s*['"`]child_process|\bexec(?:Sync)?\s*\(|\bspawn(?:Sync)?\s*\(|\bos\s*\.\s*homedir\s*\(/i;
 
   // RIG-009: browser profile / login-data directories (SOCKET)
   const PROFILE_PATTERNS = [
@@ -160,6 +176,62 @@
   const SSH_PUBKEY = /ssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/]{20,}/;
   const SSH_WRITE = />>\s*[^\n]*authorized_keys|authorized_keys[^\n]*(?:appendFile|writeFile|fs\.append|>>)|echo\s+[^\n]*>>\s*[^\n]*\.ssh/i;
 
+  // Embedded IP:port inside a longer decoded string (e.g. http://IP:port/path) - RIG-005/004 decode relaxation.
+  // Used only after the base64 decode gate (printable-ratio) so legitimate base64 rarely reaches here.
+  const EMBED_IP_PORT = new RegExp(`${IP_OCTET}(?:\\.${IP_OCTET}){3}:(\\d{1,5})\\b`);
+
+  // RIG-021: dead-drop resolver - a base64/atob decode result is fetched directly as a URL (T1102 / T1140).
+  // Inline form: axios.get(atob(...)) / fetch(Buffer.from(x,'base64').toString()) ...
+  const DEADDROP_INLINE = new RegExp(
+    '(?:\\baxios\\s*\\.\\s*(?:get|post)\\s*\\(|\\baxios\\s*\\(|\\bfetch\\s*\\(|\\bgot\\s*\\(|\\brequest\\s*\\(' +
+    '|https?\\s*\\.\\s*get\\s*\\(|\\bopen\\s*\\(\\s*["\'`](?:GET|POST)["\'`]\\s*,)' +
+    '\\s*(?:await\\s+)?(?:window\\.|self\\.|globalThis\\.)?' +
+    '(?:atob\\s*\\(|Buffer\\s*\\.\\s*from\\s*\\([^)]*["\'`]base64["\'`])', 'i');
+  // Variable form: const u = atob(env); axios.get(u)  (paired with ATOB_ASSIGN below)
+  const DEADDROP_NET_USE = (name) => new RegExp(
+    '(?:\\baxios\\s*\\.\\s*(?:get|post)\\s*\\(|\\baxios\\s*\\(|\\bfetch\\s*\\(|\\bgot\\s*\\(|\\brequest\\s*\\(' +
+    '|https?\\s*\\.\\s*get\\s*\\()\\s*(?:await\\s+)?' + name + '\\b');
+
+  // RIG-022: a network response feeds eval()/Function() (T1059.007 / T1105).
+  // Two text-FP guards: (a) the eval/Function arg must end in an HTTP-response-shaped property
+  // (`.data`/`.body` — axios/fetch convention; `.value`/`.content`/`.text` were too generic and matched
+  // local template objects like `eval(tpl.value)`), and (b) a network *call* must sit in the nearby
+  // window before the eval (not merely a `require('axios')` import elsewhere in the file). A pure string
+  // literal (webpack eval-source-map) is member-less and never matches; minified bundles are skipped.
+  const HAS_NET_SOURCE = /\bfetch\s*\(|\baxios\s*(?:\.\s*(?:get|post|put|patch|request)\s*)?\(|\bgot\s*\(|\bhttps?\s*\.\s*get\s*\(|\bXMLHttpRequest\b|\bWebSocket\s*\(/;
+  const EVAL_OF_RESPONSE = /(?:\beval|\bnew\s+Function|\bFunction)\s*\(\s*(?:await\s+)?[\w$]+(?:\.[\w$]+)*\.(?:data|body)\b/;
+
+  // RIG-006 high-confidence sub-pattern: indirect Function.constructor with a 'require' parameter.
+  // `new (Function.constructor)('require', x)` has no legitimate use (CSP-evasion loader, #2/#3 stage-1).
+  const FUNC_CTOR_REQUIRE = /Function\s*\.\s*constructor\s*\)?\s*\(\s*['"`]require['"`]/;
+
+  // RIG-023: the whole process.env object flows to a network sink (T1552.001 / T1041).
+  // Single-variable telemetry (process.env.NODE_ENV) is excluded by requiring the WHOLE object.
+  // Text-FP guards: `Object.keys(process.env)` only reads key names (no values) so it is NOT exfil;
+  // NET_SINK is call-shaped (`axios.post(`, not a bare `axios` import; not express `res.send(`); and the
+  // sink must sit in the window around the env access, not merely somewhere else in the same file.
+  const ENV_WHOLE = /JSON\.stringify\s*\(\s*process\.env\b|\{\s*\.\.\.\s*process\.env\b|Object\.(?:entries|values|assign)\s*\(\s*process\.env\b/;
+  const NET_SINK = /\bfetch\s*\(|\baxios\s*(?:\.\s*(?:post|put|get|patch|request)\s*)?\(|\bgot\s*\(|\bXMLHttpRequest\b|\bWebSocket\s*\(|\bURLSearchParams\s*\(|\b(?:navigator\s*\.\s*)?sendBeacon\s*\(|\bhttps?\s*\.\s*request\s*\(/;
+
+  // RIG-024: a package.json lifecycle script runs an in-repo script from a non-build location
+  // (server/, .github/, or bare server.js/setup.*). The Miasma `.github/setup.js` and #5 `server/server.js`.
+  // Common build commands (tsc, husky install, node ./scripts/build.js, prisma generate…) are not matched.
+  const LIFECYCLE_SUSPICIOUS_SCRIPT = /\b(?:node|ts-node|tsx|deno|bun|python3?|ruby)\b[^\n|;&]*?(?:(?:\.github|server|src[\\/]+server)[\\/]+[^\s'"]*\.(?:js|mjs|cjs|ts|py|rb|sh)\b|\bserver\.(?:js|mjs|cjs|ts)\b|\bsetup\.(?:js|mjs|cjs|ts|py|sh)\b)/i;
+
+  // RIG-025: obfuscated executable payload appended AFTER a module export - the PolinRider tell
+  // (heavily obfuscated JS injected at the end of real config files: postcss/tailwind/eslint/next/...).
+  // A legit config ends at its export; an appended `eval`/`Function`/`global['x']=` plus an opaque blob
+  // (a 120+ char string-literal soup, a run of \xNN escapes, or a long fromCharCode list) is the injection.
+  const MODULE_EXPORT = /\bexport\s+default\b|\bmodule\s*\.\s*exports\b/g;
+  const TRAILING_EXEC = /\beval\s*\(|\bnew\s+Function\s*\(|\bFunction\s*\(|\bglobal(?:This)?\s*\[\s*['"`]/;
+  const OBFU_BLOB = /['"`][A-Za-z0-9+/=_%$!^&*()\-]{120,}['"`]|(?:\\x[0-9a-fA-F]{2}){20,}|String\.fromCharCode\s*\(\s*(?:0x[0-9a-fA-F]+|\d+)\s*(?:,\s*(?:0x[0-9a-fA-F]+|\d+)\s*){15,}\)/;
+
+  // RIG-026: an anti-forensic propagation script (PolinRider temp_auto_push.bat) - rewrites git history
+  // (force-push / --amend / --no-verify) AND tampers with the system clock to backdate the malicious
+  // commit. Either alone is plausible; the combination has no legitimate use.
+  const GIT_REWRITE = /\bgit\s+(?:commit|push|rebase)\b[^\n]*?(?:--no-verify|--force\b|--amend|-\w*f\b)/i;
+  const CLOCK_TAMPER = /\bdate\s+-s\b|\bdate\s+\/[ts]\b|\bSet-Date\b|\btimedatectl\s+set-time\b|\bsudo\s+date\b/i;
+
   // ── Utility functions ────────────────────────────────────────────
   function b64decode(s) {
     try {
@@ -205,7 +277,25 @@
     if (dec == null) return null;
     if (printableRatio(dec) < THRESHOLDS.MIN_PRINTABLE) return null;
     const trimmed = dec.trim();
-    return validIpPort(trimmed) ? trimmed : null;
+    if (validIpPort(trimmed)) return trimmed;
+    // RIG-005 relaxation: the decoded string is not a bare IP:port but embeds one
+    // (e.g. http://IP:port/path). Still protected by the decode + printable-ratio gate.
+    const m = EMBED_IP_PORT.exec(trimmed);
+    if (m) {
+      const port = Number(m[1]);
+      if (port >= 1 && port <= 65535) return m[0];
+    }
+    return null;
+  }
+
+  // Whether a base64 candidate decodes to a string carrying a known C2 port (RIG-004 post-decode).
+  function decodeToC2Port(joined) {
+    const dec = b64decode(joined);
+    if (dec == null) return null;
+    if (printableRatio(dec) < THRESHOLDS.MIN_PRINTABLE) return null;
+    const re = new RegExp(C2_PORT_RE.source);
+    const m = re.exec(dec.trim());
+    return m ? m[0] : null;
   }
 
   function permutations(arr) {
@@ -253,7 +343,7 @@
     const perRule = new Map();
     // Language-neutral: detailKey + detailParams are translated by the UI (_locales) into en/zh_TW/ja.
     // title is derived by the UI into an i18n key from the rule; evidence is a technical value (IP/filename/command), language-neutral.
-    function add(id, line, detailKey, detailParams, evidence) {
+    function add(id, line, detailKey, detailParams, evidence, confOverride) {
       const meta = RULES[id];
       const n = perRule.get(id) || 0;
       if (n >= MAX_PER_RULE || findings.length >= MAX_FINDINGS) return;
@@ -261,7 +351,7 @@
       findings.push({
         rule: id,
         severity: meta.sev,
-        confidence: meta.conf,
+        confidence: confOverride || meta.conf,
         family: meta.family,
         detailKey: detailKey || null,
         detailParams: detailParams || [],
@@ -349,6 +439,9 @@
         if (frag.length < B64_SINGLE_MIN) continue;
         const ip = decodeToIpPort(frag);
         if (ip) add('RIG-005', lineOf(starts, m.index), 'd_RIG_005', [ip], ip);
+        // RIG-004 post-decode: the literal is base64 and decodes to a string carrying a known C2 port.
+        const c2 = decodeToC2Port(frag);
+        if (c2) add('RIG-004', lineOf(starts, m.index), 'd_RIG_004', [], c2);
       }
     }
     // RIG-003: fragmentation + swap reassembly (per-line groups + array groups; full permutations ≤ 4 fragments)
@@ -397,6 +490,69 @@
           add('RIG-006', lineOf(starts, m.index), 'd_RIG_006', [], m[0]);
         }
       }
+      // High-confidence sub-pattern: indirect Function.constructor('require', …) loader (#2/#3 stage-1).
+      if (FUNC_CTOR_REQUIRE.test(text)) {
+        const idx = text.search(FUNC_CTOR_REQUIRE);
+        add('RIG-006', lineOf(starts, idx), 'd_RIG_006_ctor', [], text.slice(idx, idx + 60), 'high');
+      }
+    }
+
+    // ── RIG-025: obfuscated payload appended after a module export (PolinRider) ──
+    {
+      const re = new RegExp(MODULE_EXPORT.source, 'g');
+      let last = -1, m;
+      while ((m = re.exec(text)) !== null) last = m.index + m[0].length;
+      if (last >= 0) {
+        const tail = text.slice(last);
+        const execAt = tail.search(TRAILING_EXEC);
+        if (execAt >= 0 && OBFU_BLOB.test(tail)) {
+          add('RIG-025', lineOf(starts, last + execAt), 'd_RIG_025', [], tail.slice(execAt, execAt + 60));
+        }
+      }
+    }
+
+    // ── RIG-026: anti-forensic git-history-rewrite script (force-push/amend/no-verify + clock tamper) ──
+    if (GIT_REWRITE.test(text) && CLOCK_TAMPER.test(text)) {
+      const idx = text.search(GIT_REWRITE);
+      add('RIG-026', lineOf(starts, idx), 'd_RIG_026', [], text.slice(idx, idx + 60).split(/\r?\n/)[0]);
+    }
+
+    // ── RIG-021: dead-drop resolver (decoded string fetched as URL) ──
+    {
+      let hit = false;
+      if (DEADDROP_INLINE.test(text)) {
+        const idx = text.search(DEADDROP_INLINE);
+        add('RIG-021', lineOf(starts, idx), 'd_RIG_021', [], text.slice(idx, idx + 60));
+        hit = true;
+      }
+      if (!hit) {
+        // Variable form: name = atob(...) then a network call fetches `name`.
+        const re = new RegExp(ATOB_ASSIGN.source, 'g');
+        let m;
+        while ((m = re.exec(text)) !== null) {
+          const name = m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          if (DEADDROP_NET_USE(name).test(text)) {
+            add('RIG-021', lineOf(starts, m.index), 'd_RIG_021', [], m[0]);
+            break;
+          }
+        }
+      }
+    }
+
+    // ── RIG-022: a network response feeds eval()/Function() ──
+    // Skip minified bundles (vendor eval(n.data) false-positive black hole); real stage-1 loaders are small files.
+    // Proximity gate: the network call must be in the window before the eval, so a `fetch` elsewhere in the
+    // file does not retro-actively make an unrelated `eval(local.data)` look like a loader.
+    if (!minifiedLike) {
+      const re = new RegExp(EVAL_OF_RESPONSE.source, 'g');
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const win = text.slice(Math.max(0, m.index - 400), m.index + 40);
+        if (HAS_NET_SOURCE.test(win)) {
+          add('RIG-022', lineOf(starts, m.index), 'd_RIG_022', [], text.slice(m.index, m.index + 60));
+          break;
+        }
+      }
     }
 
     // ── RIG-007: atob → eval chain ──
@@ -420,13 +576,34 @@
     // ── RIG-008: wallet / key paths ──
     for (const p of WALLET_PATTERNS) {
       const m = p.re.exec(text);
-      if (m) add('RIG-008', lineOf(starts, m.index), 'd_RIG_008', [p.what], m[0]);
+      if (!m) continue;
+      if (p.behavior) {
+        // Behavior gate: a mnemonic/seedPhrase name alone is text; require a nearby steal action.
+        const win = text.slice(Math.max(0, m.index - 200), m.index + 200);
+        if (!WALLET_BEHAVIOR.test(win)) continue;
+      }
+      add('RIG-008', lineOf(starts, m.index), 'd_RIG_008', [p.what], m[0]);
     }
 
     // ── RIG-009: browser profile directory ──
     for (const p of PROFILE_PATTERNS) {
       const m = p.re.exec(text);
       if (m) add('RIG-009', lineOf(starts, m.index), 'd_RIG_009', [p.what], m[0]);
+    }
+
+    // ── RIG-023: whole process.env exfiltrated to a network sink ──
+    // Proximity gate: the env access and the network sink must sit in the same window, so a debug
+    // `JSON.stringify(process.env)` plus an unrelated `axios`/`res.send` elsewhere does not false-positive.
+    {
+      const re = new RegExp(ENV_WHOLE.source, 'g');
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const win = text.slice(Math.max(0, m.index - 200), m.index + 200);
+        if (NET_SINK.test(win)) {
+          add('RIG-023', lineOf(starts, m.index), 'd_RIG_023', [], text.slice(m.index, m.index + 60));
+          break;
+        }
+      }
     }
 
     // ── RIG-019: SSH authorized_keys backdoor write ──
@@ -446,6 +623,9 @@
           const lineNo = idx >= 0 ? lineOf(starts, idx) : null;
           if (INSTALL_EXEC.test(val)) {
             add('RIG-010', lineNo, 'd_RIG_010', [key], val);
+          } else if (LIFECYCLE_SUSPICIOUS_SCRIPT.test(val)) {
+            // RIG-024: not a download/inline-exec, but runs an in-repo script from a non-build path.
+            add('RIG-024', lineNo, 'd_RIG_024', [key], val);
           }
           if (IP_RE.test(val)) {
             add('RIG-011', lineNo, 'd_RIG_011', [key], val);

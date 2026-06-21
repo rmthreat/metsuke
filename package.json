@@ -1,0 +1,15 @@
+{
+  "name": "metsuke",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Metsuke detector - Node test runner + Cloudflare Worker test endpoint. Not the shipped extension (that is packaged by scripts/pack.sh).",
+  "scripts": {
+    "test": "node tests/run.js",
+    "deploy:tests": "wrangler deploy",
+    "dev:tests": "wrangler dev",
+    "test:remote": "curl -fsS \"${METSUKE_TEST_URL:?set METSUKE_TEST_URL to your deployed worker URL}/test\""
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

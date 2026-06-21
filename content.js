@@ -50,6 +50,31 @@
     '.gemini/settings.json',       // 2026 "Miasma" worm: SessionStart hook
     '.gemini/settings.local.json',
     '.cursor/rules/setup.mdc',     // 2026 "Miasma" worm: alwaysApply prompt injection
+    // Backend entry points: family-A stage-1 loaders hide in conventional server files
+    // with no folderOpen vector, so a repo-home scan that only reads config files misses them.
+    'index.js',
+    'app.js',
+    'server.js',
+    'src/index.js',
+    'server/index.js',
+    'server/server.js',
+    // .env-class files: dead-drop URLs are stored base64-encoded here (#2/#3 server/config/config.env).
+    // .env.example is intentionally excluded (placeholders, not decodable endpoints).
+    '.env',
+    'config.env',
+    'server/config/config.env',
+    // Build/config files PolinRider appends its obfuscated payload to (~62% of infections live here).
+    'postcss.config.mjs',
+    'postcss.config.js',
+    'tailwind.config.js',
+    'tailwind.config.ts',
+    'eslint.config.mjs',
+    'eslint.config.js',
+    'next.config.mjs',
+    'next.config.js',
+    'vite.config.js',
+    'vite.config.ts',
+    'webpack.config.js',
   ];
 
   // ── State ────────────────────────────────────────────────────────
