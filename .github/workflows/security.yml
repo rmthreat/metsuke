@@ -32,16 +32,16 @@ jobs:
       # rest of the job. Pre-release tool, so don't fail the build on sensor issues.
       - name: cicd-sensor (runtime CI/CD EDR)
         continue-on-error: true
-        uses: cicd-sensor/cicd-sensor-action@3a3a447ad3668a3e205bf1273f2f2806bbbd30f3 # v0.0.33
+        uses: cicd-sensor/cicd-sensor-action@777ddaafc9ec2e09c9779cdb860e75906adc19c2 # v0.0.34
 
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       # Static analysis of the GitHub Actions workflows (pinned actions, injection,
       # permissions, etc.). Prints findings to the console and fails on issues.
       - name: zizmor (GitHub Actions SAST)
-        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
         with:
           advanced-security: false
